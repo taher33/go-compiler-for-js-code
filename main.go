@@ -18,7 +18,9 @@ func main() {
 	// if err != nil {
 	// 	fmt.Println(err)
 	// }
-	fmt.Println("program", program)
+	result := evaluate(program)
+
+	fmt.Println("program", result)
 }
 
 const (
@@ -139,6 +141,10 @@ func (s Stmt) ExpressionKind() string {
 	return s.Kind
 }
 
+func (s Program) ExpressionKind() string {
+	return s.Kind
+}
+
 // Implementing ExpressionKind for BinaryExpr
 func (b BinaryExpr) ExpressionKind() string {
 	return b.Kind
@@ -232,4 +238,33 @@ func (p *Parser) parseMultiplicativeExpr() Expression {
 		}
 	}
 	return left
+}
+
+//interpreter
+
+type RuntimeVal struct {
+	Type  string
+	value string
+}
+
+func evaluate(astNode interface{}) RuntimeVal {
+
+	switch node := astNode.(type) {
+	case Stmt:
+		//todo: get more switches out here
+		evalNode := RuntimeVal{value: node.Symbol, Type: "number"}
+		return evalNode
+
+	case BinaryExpr:
+		evalNode := RuntimeVal{value: "null", Type: "null"}
+		return evalNode
+
+	case Program:
+		//todo: work on this
+		evalNode := RuntimeVal{value: "null", Type: "null"}
+		return evalNode
+
+	default:
+		panic("not a handled token")
+	}
 }
