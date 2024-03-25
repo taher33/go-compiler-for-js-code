@@ -23,6 +23,7 @@ func main() {
 
 const (
 	Number         = "number"
+	Null           = "NullLiteral"
 	Identifier     = "Identifier"
 	Equals         = "Equals"
 	OpenParen      = "OpenParen"
@@ -34,7 +35,8 @@ const (
 )
 
 var reservedKeyword = map[string]string{
-	"let": Let,
+	"let":  Let,
+	"null": Null,
 }
 
 type TokenType string
