@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -58,7 +59,7 @@ func isNum(src string) bool {
 }
 
 func isSkippable(src string) bool {
-	return src == " " || src == "\n" || src == "\t"
+	return src == " " || src == "\n" || src == "\t" || src == "\r"
 }
 
 func tokenize(sourceCode string) []Token {
@@ -101,7 +102,7 @@ func tokenize(sourceCode string) []Token {
 			} else if isSkippable(src[i]) {
 
 			} else {
-				fmt.Println("unrecognized char", i)
+				fmt.Println("unrecognized char", sourceCode[i])
 			}
 
 		}
@@ -203,7 +204,6 @@ func (p *Parser) parsePrimaryExpr() Expression {
 
 func (p *Parser) parseAdditiveExpr() Expression {
 	left := p.parseMultiplicativeExpr()
-	fmt.Println("curr", p.curr)
 
 	for p.tokens[p.curr].Value == "-" || p.tokens[p.curr].Value == "+" {
 		operator := p.tokens[p.curr].Value
@@ -247,22 +247,60 @@ type RuntimeVal struct {
 	value string
 }
 
-func evaluate(astNode interface{}) RuntimeVal {
+func evalProgram(pr Program) RuntimeVal {
+	lastEvalNode := RuntimeVal{value: "null", Type: "null"}
 
+	for i := 0; i < len(pr.body); i++ {
+		lastEvalNode = evaluate(pr.body[i])
+	}
+
+	return lastEvalNode
+}
+
+func evalBinOp(binop BinaryExpr) RuntimeVal {
+	leftSide := evaluate(binop.left)
+	rightSide := evaluate(binop.right)
+	leftSideVal, leftErr := strconv.ParseFloat(leftSide.value, 64)
+	rightSideVal, rightErr := strconv.ParseFloat(rightSide.value, 64)
+
+	if leftErr == nil && rightErr == nil && leftSide.Type == Number && rightSide.Type == Number {
+		result := float64(0)
+		switch binop.operator {
+		case "+":
+			result = float64(leftSideVal) + float64(rightSideVal)
+		case "-":
+			result = float64(leftSideVal) - float64(rightSideVal)
+		case "*":
+			result = float64(leftSideVal) * float64(rightSideVal)
+		case "/":
+			result = float64(leftSideVal) / float64(rightSideVal)
+		}
+
+		resVal := RuntimeVal{value: strconv.FormatFloat(result, 'E', -1, 64), Type: Number}
+		return resVal
+	}
+
+	nullType := RuntimeVal{value: "null", Type: "null"}
+	return nullType
+}
+
+func evaluate(astNode interface{}) RuntimeVal {
 	switch node := astNode.(type) {
 	case Stmt:
-		//todo: get more switches out here
-		evalNode := RuntimeVal{value: node.Symbol, Type: "number"}
-		return evalNode
+		switch node.Kind {
+		case Number:
+			evalNode := RuntimeVal{value: node.Symbol, Type: "number"}
+			return evalNode
+		default:
+			panic("not a handled token")
+		}
 
 	case BinaryExpr:
-		evalNode := RuntimeVal{value: "null", Type: "null"}
+		evalNode := evalBinOp(node)
 		return evalNode
 
 	case Program:
-		//todo: work on this
-		evalNode := RuntimeVal{value: "null", Type: "null"}
-		return evalNode
+		return evalProgram(node)
 
 	default:
 		panic("not a handled token")
