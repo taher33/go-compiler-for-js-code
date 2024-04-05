@@ -306,3 +306,46 @@ func evaluate(astNode interface{}) RuntimeVal {
 		panic("not a handled token")
 	}
 }
+
+//env for handling scope
+
+type Environment struct {
+	parent    *Environment
+	variables map[string]Stmt
+}
+
+func (env *Environment) declareVar(name string, value Stmt) Stmt {
+	_, ok := env.variables[name]
+
+	if !ok {
+		panic("already defined variable name " + name)
+	}
+
+	env.variables[name] = value
+	return value
+}
+
+func (env *Environment) resolve(name string) *Environment {
+	_, ok := env.variables[name]
+
+	if ok {
+		return env
+	}
+
+	if env.parent == nil {
+		panic("cannot find var name: " + name)
+	}
+
+	return env.parent.resolve(name)
+}
+
+func (env *Environment) assignVar(name string, value Stmt) Stmt {
+	varEnv := env.resolve(name)
+	varEnv.variables[name] = value
+	return value
+}
+
+func (env *Environment) lookupVar(name string) Stmt {
+	varEnv := env.resolve(name)
+	return varEnv.variables[name]
+}
