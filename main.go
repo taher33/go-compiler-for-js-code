@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -19,27 +20,35 @@ func main() {
 	// if err != nil {
 	// 	fmt.Println(err)
 	// }
-	result := evaluate(program)
+	variables := map[string]RuntimeVal{}
+	env := Environment{variables: variables}
+	env.declareVar("x", RuntimeVal{value: "100", Type: Number})
+	env.declareVar("true", RuntimeVal{value: "true", Type: Boolean})
+	env.declareVar("false", RuntimeVal{value: "false", Type: Boolean})
+	env.declareVar("null", RuntimeVal{value: "null", Type: Null})
+	result := evaluate(program, &env)
 
 	fmt.Println("program", result)
 }
 
 const (
-	Number         = "number"
-	Null           = "NullLiteral"
+	Number         = "Number"
 	Identifier     = "Identifier"
+	Null           = "NullLiteral"
+	Boolean        = "Boolean"
 	Equals         = "Equals"
 	OpenParen      = "OpenParen"
 	CloseParen     = "CloseParen"
 	BinaryOperator = "BinaryOperator"
 	Let            = "Let"
+	Const          = "Const"
 	SemiCol        = "SemiCol"
 	EOF            = "EOF"
 )
 
 var reservedKeyword = map[string]string{
-	"let":  Let,
-	"null": Null,
+	"let":   Let,
+	"const": Const,
 }
 
 type TokenType string
@@ -133,12 +142,22 @@ type BinaryExpr struct {
 	operator string     `json:"operator"`
 }
 
+type VarDeclaration struct {
+	Kind       string
+	constant   bool
+	identifier string
+	value      *Stmt
+}
+
 type Expression interface {
 	ExpressionKind() string
 }
 
 // Implementing ExpressionKind for Stmt
 func (s Stmt) ExpressionKind() string {
+	return s.Kind
+}
+func (s VarDeclaration) ExpressionKind() string {
 	return s.Kind
 }
 
@@ -170,10 +189,50 @@ func (p *Parser) produceProgram(sourceCode string) Program {
 		program.body = append(program.body, p.parseStatements())
 	}
 	return program
+
+}
+
+func (p *Parser) parseVarDeclar() VarDeclaration {
+	isConstant := (p.tokens[p.curr].TokenType == Const)
+	p.curr++
+	if p.tokens[p.curr].TokenType != Identifier {
+		panic("expected identifier name")
+	}
+	ident := p.tokens[p.curr].Value
+	p.curr++
+
+	if p.tokens[p.curr].TokenType == SemiCol {
+		p.curr++
+		if isConstant {
+			panic("must assign value")
+		}
+
+		return VarDeclaration{constant: false, identifier: ident, Kind: "VarDeclaration"}
+	}
+
+	if p.tokens[p.curr].TokenType != Equals {
+		panic("expected Equals sign")
+	}
+	p.curr++
+	varDeclar := VarDeclaration{constant: isConstant, identifier: ident, Kind: "VarDeclaration", value: (p.parseExpr().(*Stmt))}
+
+	if p.tokens[p.curr].TokenType != SemiCol {
+		panic("expected Equals SEMICOLON")
+	}
+	p.curr++
+
+	return varDeclar
 }
 
 func (p *Parser) parseStatements() Expression {
-	return p.parseExpr()
+	switch p.tokens[p.curr].TokenType {
+	case Const:
+		return p.parseVarDeclar()
+	case Let:
+		return p.parseVarDeclar()
+	default:
+		return p.parseExpr()
+	}
 }
 
 func (p *Parser) parseExpr() Expression {
@@ -247,19 +306,19 @@ type RuntimeVal struct {
 	value string
 }
 
-func evalProgram(pr Program) RuntimeVal {
+func evalProgram(pr Program, env *Environment) RuntimeVal {
 	lastEvalNode := RuntimeVal{value: "null", Type: "null"}
 
 	for i := 0; i < len(pr.body); i++ {
-		lastEvalNode = evaluate(pr.body[i])
+		lastEvalNode = evaluate(pr.body[i], env)
 	}
 
 	return lastEvalNode
 }
 
-func evalBinOp(binop BinaryExpr) RuntimeVal {
-	leftSide := evaluate(binop.left)
-	rightSide := evaluate(binop.right)
+func evalBinOp(binop BinaryExpr, env *Environment) RuntimeVal {
+	leftSide := evaluate(binop.left, env)
+	rightSide := evaluate(binop.right, env)
 	leftSideVal, leftErr := strconv.ParseFloat(leftSide.value, 64)
 	rightSideVal, rightErr := strconv.ParseFloat(rightSide.value, 64)
 
@@ -284,23 +343,34 @@ func evalBinOp(binop BinaryExpr) RuntimeVal {
 	return nullType
 }
 
-func evaluate(astNode interface{}) RuntimeVal {
+func evaluate(astNode interface{}, env *Environment) RuntimeVal {
 	switch node := astNode.(type) {
 	case Stmt:
 		switch node.Kind {
 		case Number:
-			evalNode := RuntimeVal{value: node.Symbol, Type: "number"}
-			return evalNode
+			{
+				evalNode := RuntimeVal{value: node.Symbol, Type: "number"}
+				return evalNode
+			}
+		case Identifier:
+			{
+				value := env.lookupVar(node.Symbol)
+				return value
+			}
 		default:
-			panic("not a handled token")
+			strNode, err := json.Marshal(node)
+			if err != nil {
+				panic("marshal gone wrong")
+			}
+			panic("not a handled token" + string(strNode))
 		}
 
 	case BinaryExpr:
-		evalNode := evalBinOp(node)
+		evalNode := evalBinOp(node, env)
 		return evalNode
 
 	case Program:
-		return evalProgram(node)
+		return evalProgram(node, env)
 
 	default:
 		panic("not a handled token")
@@ -311,13 +381,13 @@ func evaluate(astNode interface{}) RuntimeVal {
 
 type Environment struct {
 	parent    *Environment
-	variables map[string]Stmt
+	variables map[string]RuntimeVal
 }
 
-func (env *Environment) declareVar(name string, value Stmt) Stmt {
+func (env *Environment) declareVar(name string, value RuntimeVal) RuntimeVal {
 	_, ok := env.variables[name]
 
-	if !ok {
+	if ok {
 		panic("already defined variable name " + name)
 	}
 
@@ -339,13 +409,13 @@ func (env *Environment) resolve(name string) *Environment {
 	return env.parent.resolve(name)
 }
 
-func (env *Environment) assignVar(name string, value Stmt) Stmt {
+func (env *Environment) assignVar(name string, value RuntimeVal) RuntimeVal {
 	varEnv := env.resolve(name)
 	varEnv.variables[name] = value
 	return value
 }
 
-func (env *Environment) lookupVar(name string) Stmt {
+func (env *Environment) lookupVar(name string) RuntimeVal {
 	varEnv := env.resolve(name)
 	return varEnv.variables[name]
 }
