@@ -214,13 +214,11 @@ func (p *Parser) parseVarDeclar() VarDeclaration {
 	}
 	p.curr++
 	typeConversion := p.parseExpr().(Expression)
-	fmt.Println("value: ", typeConversion)
 	varDeclar := VarDeclaration{constant: isConstant, identifier: ident, Kind: "VarDeclaration", value: &typeConversion}
 
 	if p.tokens[p.curr].TokenType != SemiCol {
 		panic("expected Equals SEMICOLON")
 	}
-	p.curr++
 
 	return varDeclar
 }
@@ -322,6 +320,7 @@ func evalBinOp(binop BinaryExpr, env *Environment) RuntimeVal {
 	rightSide := evaluate(binop.right, env)
 	leftSideVal, leftErr := strconv.ParseFloat(leftSide.value, 64)
 	rightSideVal, rightErr := strconv.ParseFloat(rightSide.value, 64)
+	fmt.Println("binop", leftSide.Type == Number)
 
 	if leftErr == nil && rightErr == nil && leftSide.Type == Number && rightSide.Type == Number {
 		result := float64(0)
@@ -350,7 +349,7 @@ func evaluate(astNode interface{}, env *Environment) RuntimeVal {
 		switch node.Kind {
 		case Number:
 			{
-				evalNode := RuntimeVal{value: node.Symbol, Type: "number"}
+				evalNode := RuntimeVal{value: node.Symbol, Type: Number}
 				return evalNode
 			}
 		case Identifier:
@@ -369,6 +368,14 @@ func evaluate(astNode interface{}, env *Environment) RuntimeVal {
 	case BinaryExpr:
 		evalNode := evalBinOp(node, env)
 		return evalNode
+
+	case VarDeclaration:
+		nodeValue := RuntimeVal{value: "null", Type: Null}
+		if node.value != nil {
+			nodeValue = evaluate(*node.value, env)
+		}
+		fmt.Println(evaluate(*node.value, env))
+		return env.declareVar(node.identifier, nodeValue)
 
 	case Program:
 		return evalProgram(node, env)
