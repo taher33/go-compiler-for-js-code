@@ -22,10 +22,10 @@ func main() {
 	// }
 	variables := map[string]RuntimeVal{}
 	env := Environment{variables: variables}
-	env.declareVar("x", RuntimeVal{value: "100", Type: Number})
-	env.declareVar("true", RuntimeVal{value: "true", Type: Boolean})
-	env.declareVar("false", RuntimeVal{value: "false", Type: Boolean})
-	env.declareVar("null", RuntimeVal{value: "null", Type: Null})
+	env.declareVar("x", RuntimeVal{value: "100", Type: Number}, true)
+	env.declareVar("true", RuntimeVal{value: "true", Type: Boolean}, true)
+	env.declareVar("false", RuntimeVal{value: "false", Type: Boolean}, true)
+	env.declareVar("null", RuntimeVal{value: "null", Type: Null}, true)
 	result := evaluate(program, &env)
 
 	fmt.Println("program", result)
@@ -142,6 +142,12 @@ type BinaryExpr struct {
 	operator string     `json:"operator"`
 }
 
+type AssignmentExpr struct {
+	Kind     string     `json:"Kind"`
+	assignee Expression `json:"left"`
+	value    Expression `json:"right"`
+}
+
 type VarDeclaration struct {
 	Kind       string
 	constant   bool
@@ -155,6 +161,9 @@ type Expression interface {
 
 // Implementing ExpressionKind for Stmt
 func (s Stmt) ExpressionKind() string {
+	return s.Kind
+}
+func (s AssignmentExpr) ExpressionKind() string {
 	return s.Kind
 }
 func (s VarDeclaration) ExpressionKind() string {
@@ -235,7 +244,18 @@ func (p *Parser) parseStatements() Expression {
 }
 
 func (p *Parser) parseExpr() Expression {
-	return p.parseAdditiveExpr()
+	return p.parseAssignmentExpr()
+}
+
+func (p *Parser) parseAssignmentExpr() Expression {
+	left := p.parseAdditiveExpr()
+
+	if p.tokens[p.curr].TokenType == Equals {
+		p.curr++
+		value := p.parseAssignmentExpr()
+		return AssignmentExpr{assignee: left, value: value, Kind: "AssignmentExpr"}
+	}
+	return left
 }
 
 func (p *Parser) parsePrimaryExpr() Expression {
@@ -320,7 +340,6 @@ func evalBinOp(binop BinaryExpr, env *Environment) RuntimeVal {
 	rightSide := evaluate(binop.right, env)
 	leftSideVal, leftErr := strconv.ParseFloat(leftSide.value, 64)
 	rightSideVal, rightErr := strconv.ParseFloat(rightSide.value, 64)
-	fmt.Println("binop", leftSide.Type == Number)
 
 	if leftErr == nil && rightErr == nil && leftSide.Type == Number && rightSide.Type == Number {
 		result := float64(0)
@@ -374,8 +393,14 @@ func evaluate(astNode interface{}, env *Environment) RuntimeVal {
 		if node.value != nil {
 			nodeValue = evaluate(*node.value, env)
 		}
-		fmt.Println(evaluate(*node.value, env))
-		return env.declareVar(node.identifier, nodeValue)
+		return env.declareVar(node.identifier, nodeValue, node.constant)
+
+	case AssignmentExpr:
+		if node.assignee.ExpressionKind() != Identifier {
+			panic("invalid assignment")
+		}
+		varName := node.assignee.(Stmt).Symbol
+		return env.assignVar(varName, evaluate(node.value, env))
 
 	case Program:
 		return evalProgram(node, env)
@@ -390,13 +415,18 @@ func evaluate(astNode interface{}, env *Environment) RuntimeVal {
 type Environment struct {
 	parent    *Environment
 	variables map[string]RuntimeVal
+	constants []string
 }
 
-func (env *Environment) declareVar(name string, value RuntimeVal) RuntimeVal {
+func (env *Environment) declareVar(name string, value RuntimeVal, constant bool) RuntimeVal {
 	_, ok := env.variables[name]
 
 	if ok {
 		panic("already defined variable name " + name)
+	}
+
+	if constant {
+		env.constants = append(env.constants, name)
 	}
 
 	env.variables[name] = value
@@ -419,6 +449,13 @@ func (env *Environment) resolve(name string) *Environment {
 
 func (env *Environment) assignVar(name string, value RuntimeVal) RuntimeVal {
 	varEnv := env.resolve(name)
+
+	for i := 0; i < len(varEnv.constants); i++ {
+		if varEnv.constants[i] == name {
+			panic("cannot reassign a constant variable: " + name)
+		}
+	}
+
 	varEnv.variables[name] = value
 	return value
 }
