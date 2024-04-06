@@ -146,7 +146,7 @@ type VarDeclaration struct {
 	Kind       string
 	constant   bool
 	identifier string
-	value      *Stmt
+	value      *Expression
 }
 
 type Expression interface {
@@ -206,7 +206,6 @@ func (p *Parser) parseVarDeclar() VarDeclaration {
 		if isConstant {
 			panic("must assign value")
 		}
-
 		return VarDeclaration{constant: false, identifier: ident, Kind: "VarDeclaration"}
 	}
 
@@ -214,7 +213,9 @@ func (p *Parser) parseVarDeclar() VarDeclaration {
 		panic("expected Equals sign")
 	}
 	p.curr++
-	varDeclar := VarDeclaration{constant: isConstant, identifier: ident, Kind: "VarDeclaration", value: (p.parseExpr().(*Stmt))}
+	typeConversion := p.parseExpr().(Expression)
+	fmt.Println("value: ", typeConversion)
+	varDeclar := VarDeclaration{constant: isConstant, identifier: ident, Kind: "VarDeclaration", value: &typeConversion}
 
 	if p.tokens[p.curr].TokenType != SemiCol {
 		panic("expected Equals SEMICOLON")
