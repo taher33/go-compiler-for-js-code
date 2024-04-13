@@ -21,8 +21,7 @@ func main() {
 	// 	fmt.Println(err)
 	// }
 	variables := map[string]RuntimeVal{}
-	env := Environment{variables: variables}
-	env.declareVar("x", RuntimeVal{value: "100", Type: Number}, true)
+	env := Environment{variables: variables, global: true}
 	env.declareVar("true", RuntimeVal{value: "true", Type: Boolean}, true)
 	env.declareVar("false", RuntimeVal{value: "false", Type: Boolean}, true)
 	env.declareVar("null", RuntimeVal{value: "null", Type: Null}, true)
@@ -44,6 +43,10 @@ const (
 	Const          = "Const"
 	SemiCol        = "SemiCol"
 	EOF            = "EOF"
+	Comma          = "Comma"
+	Colon          = "Colon"
+	CloseBrace     = "CloseBrace"
+	OpenBrace      = "OpenBrace"
 )
 
 var reservedKeyword = map[string]string{
@@ -80,10 +83,18 @@ func tokenize(sourceCode string) []Token {
 			tokens = append(tokens, createToken(src[i], OpenParen))
 		} else if (src[i]) == ")" {
 			tokens = append(tokens, createToken(src[i], CloseParen))
+		} else if (src[i]) == "]" {
+			tokens = append(tokens, createToken(src[i], CloseBrace))
+		} else if (src[i]) == "[" {
+			tokens = append(tokens, createToken(src[i], OpenBrace))
 		} else if (src[i]) == "*" || (src[i]) == "/" || (src[i]) == "%" || (src[i]) == "+" || (src[i]) == "-" {
 			tokens = append(tokens, createToken(src[i], BinaryOperator))
 		} else if (src[i]) == "=" {
 			tokens = append(tokens, createToken(src[i], Equals))
+		} else if (src[i]) == ":" {
+			tokens = append(tokens, createToken(src[i], Colon))
+		} else if (src[i]) == "," {
+			tokens = append(tokens, createToken(src[i], Comma))
 		} else if (src[i]) == ";" {
 			tokens = append(tokens, createToken(src[i], SemiCol))
 		} else {
@@ -414,6 +425,7 @@ func evaluate(astNode interface{}, env *Environment) RuntimeVal {
 
 type Environment struct {
 	parent    *Environment
+	global    bool
 	variables map[string]RuntimeVal
 	constants []string
 }
