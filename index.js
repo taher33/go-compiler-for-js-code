@@ -1,2 +1,5 @@
-let t = 7 + 5 - x;
-t = true;
+const foo = 5455;
+const hello = {
+  hello: 5,
+  foo,
+};

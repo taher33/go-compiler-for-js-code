@@ -16,37 +16,46 @@ func main() {
 
 	parser := Parser{}
 	program := parser.produceProgram(string(data))
-	// marshaled, err := json.MarshalIndent(program, "", "   ")
-	// if err != nil {
-	// 	fmt.Println(err)
+
+	// for i := 0; i < len(program.body); i++ {
+	// 	switch node := program.body[i].(type) {
+	// 	case VarDeclaration:
+	// 		{
+	// 			fmt.Println(*node.value)
+	// 		}
+
+	// 	}
 	// }
-	variables := map[string]RuntimeVal{}
+
+	variables := map[string]Runtime{}
 	env := Environment{variables: variables, global: true}
 	env.declareVar("true", RuntimeVal{value: "true", Type: Boolean}, true)
 	env.declareVar("false", RuntimeVal{value: "false", Type: Boolean}, true)
 	env.declareVar("null", RuntimeVal{value: "null", Type: Null}, true)
 	result := evaluate(program, &env)
 
-	fmt.Println("program", result)
+	fmt.Printf("program %+v", result)
 }
 
 const (
-	Number         = "Number"
-	Identifier     = "Identifier"
-	Null           = "NullLiteral"
-	Boolean        = "Boolean"
-	Equals         = "Equals"
-	OpenParen      = "OpenParen"
-	CloseParen     = "CloseParen"
-	BinaryOperator = "BinaryOperator"
-	Let            = "Let"
-	Const          = "Const"
-	SemiCol        = "SemiCol"
-	EOF            = "EOF"
-	Comma          = "Comma"
-	Colon          = "Colon"
-	CloseBrace     = "CloseBrace"
-	OpenBrace      = "OpenBrace"
+	Number          = "Number"
+	Identifier      = "Identifier"
+	Null            = "NullLiteral"
+	Boolean         = "Boolean"
+	Equals          = "Equals"
+	OpenParen       = "OpenParen"
+	CloseParen      = "CloseParen"
+	BinaryOperator  = "BinaryOperator"
+	Let             = "Let"
+	Const           = "Const"
+	SemiCol         = "SemiCol"
+	EOF             = "EOF"
+	Comma           = "Comma"
+	Colon           = "Colon"
+	CloseBrace      = "CloseBrace"
+	OpenBrace       = "OpenBrace"
+	ObjectLiteral   = "ObjectLiteral"
+	PropertyLiteral = "PropertyLiteral"
 )
 
 var reservedKeyword = map[string]string{
@@ -83,9 +92,9 @@ func tokenize(sourceCode string) []Token {
 			tokens = append(tokens, createToken(src[i], OpenParen))
 		} else if (src[i]) == ")" {
 			tokens = append(tokens, createToken(src[i], CloseParen))
-		} else if (src[i]) == "]" {
+		} else if (src[i]) == "}" {
 			tokens = append(tokens, createToken(src[i], CloseBrace))
-		} else if (src[i]) == "[" {
+		} else if (src[i]) == "{" {
 			tokens = append(tokens, createToken(src[i], OpenBrace))
 		} else if (src[i]) == "*" || (src[i]) == "/" || (src[i]) == "%" || (src[i]) == "+" || (src[i]) == "-" {
 			tokens = append(tokens, createToken(src[i], BinaryOperator))
@@ -141,9 +150,20 @@ type Stmt struct {
 	Symbol string `json:"Symbol"`
 }
 
+type Property struct {
+	kind  string
+	key   string
+	value Expression
+}
+
+type Object struct {
+	kind       string
+	properties []Property
+}
+
 type Program struct {
-	Kind string `json:"Kind"`
-	body []Expression
+	Kind string       `json:"Kind"`
+	body []Expression `json:"body"`
 }
 
 type BinaryExpr struct {
@@ -188,6 +208,10 @@ func (s Program) ExpressionKind() string {
 // Implementing ExpressionKind for BinaryExpr
 func (b BinaryExpr) ExpressionKind() string {
 	return b.Kind
+}
+
+func (b Object) ExpressionKind() string {
+	return b.kind
 }
 
 //parser
@@ -237,7 +261,7 @@ func (p *Parser) parseVarDeclar() VarDeclaration {
 	varDeclar := VarDeclaration{constant: isConstant, identifier: ident, Kind: "VarDeclaration", value: &typeConversion}
 
 	if p.tokens[p.curr].TokenType != SemiCol {
-		panic("expected Equals SEMICOLON")
+		panic("expected Equals SEMICOLON but got this: " + p.tokens[p.curr].Value + " at: " + fmt.Sprint(p.curr))
 	}
 
 	return varDeclar
@@ -258,8 +282,26 @@ func (p *Parser) parseExpr() Expression {
 	return p.parseAssignmentExpr()
 }
 
+func (p *Parser) getCurrToken() Token {
+	return p.tokens[p.curr]
+}
+
+func (p *Parser) advanceCurr() {
+	p.curr++
+}
+
+func (p *Parser) expectToken(token TokenType) Token {
+	currToken := p.getCurrToken()
+	if currToken.TokenType != token {
+		panic("expected this: " + token + "but got this token instead: " + currToken.TokenType)
+	}
+
+	p.advanceCurr()
+	return currToken
+}
+
 func (p *Parser) parseAssignmentExpr() Expression {
-	left := p.parseAdditiveExpr()
+	left := p.parseObjectExpr()
 
 	if p.tokens[p.curr].TokenType == Equals {
 		p.curr++
@@ -267,6 +309,40 @@ func (p *Parser) parseAssignmentExpr() Expression {
 		return AssignmentExpr{assignee: left, value: value, Kind: "AssignmentExpr"}
 	}
 	return left
+}
+
+func (p *Parser) parseObjectExpr() Expression {
+	if p.getCurrToken().TokenType != OpenBrace {
+		return p.parseAdditiveExpr()
+	}
+	p.advanceCurr()
+
+	properties := []Property{}
+
+	for p.getCurrToken().TokenType != EOF && p.getCurrToken().TokenType != CloseBrace {
+		key := p.expectToken(Identifier).Value
+		if p.getCurrToken().TokenType == Comma {
+			p.advanceCurr()
+			properties = append(properties, Property{kind: PropertyLiteral, key: key, value: nil})
+			continue
+		} else if p.getCurrToken().TokenType == CloseBrace {
+			properties = append(properties, Property{kind: PropertyLiteral, key: key, value: nil})
+			continue
+		}
+
+		p.expectToken(Colon)
+
+		value := p.parseExpr()
+
+		properties = append(properties, Property{kind: PropertyLiteral, key: key, value: value})
+
+		if p.getCurrToken().TokenType != CloseBrace {
+			p.expectToken(Comma)
+		}
+	}
+
+	p.expectToken(CloseBrace)
+	return Object{kind: ObjectLiteral, properties: properties}
 }
 
 func (p *Parser) parsePrimaryExpr() Expression {
@@ -329,26 +405,82 @@ func (p *Parser) parseMultiplicativeExpr() Expression {
 	return left
 }
 
-//interpreter
+// interpreter
+type ObjectVal struct {
+	Type       string
+	properties []RuntimeProperties
+}
+
+type RuntimeProperties struct {
+	key   string
+	value Runtime
+}
 
 type RuntimeVal struct {
 	Type  string
 	value string
 }
 
-func evalProgram(pr Program, env *Environment) RuntimeVal {
+type Runtime interface {
+	runtimeType() string
+}
+
+func (s RuntimeVal) runtimeType() string {
+	return s.Type
+}
+
+func (s ObjectVal) runtimeType() string {
+	return s.Type
+}
+
+func evalProgram(pr Program, env *Environment) Runtime {
 	lastEvalNode := RuntimeVal{value: "null", Type: "null"}
+	lastEvalObj := ObjectVal{properties: []RuntimeProperties{}, Type: ObjectLiteral}
+	lastRan := 0
 
 	for i := 0; i < len(pr.body); i++ {
-		lastEvalNode = evaluate(pr.body[i], env)
+		node := evaluate(pr.body[i], env)
+		switch node.(type) {
+		case RuntimeVal:
+			{
+				lastEvalNode = node.(RuntimeVal)
+				lastRan = 0
+			}
+		case ObjectVal:
+			{
+				lastEvalObj = node.(ObjectVal)
+				lastRan = 1
+			}
+		default:
+			{
+				panic("not a handled type " + node.runtimeType())
+			}
+		}
+	}
+	if lastRan == 1 {
+		return lastEvalObj
+	} else {
+		return lastEvalNode
+	}
+}
+
+func evalObject(node Object, env *Environment) ObjectVal {
+	object := ObjectVal{Type: ObjectLiteral, properties: []RuntimeProperties{}}
+
+	for i := 0; i < len(node.properties); i++ {
+		if node.properties[i].value == nil {
+			object.properties = append(object.properties, RuntimeProperties{key: node.properties[i].key, value: env.lookupVar(node.properties[i].key)})
+		} else {
+			object.properties = append(object.properties, RuntimeProperties{key: node.properties[i].key, value: evaluate(node.properties[i].value, env)})
+		}
 	}
 
-	return lastEvalNode
+	return object
 }
 
 func evalBinOp(binop BinaryExpr, env *Environment) RuntimeVal {
-	leftSide := evaluate(binop.left, env)
-	rightSide := evaluate(binop.right, env)
+	leftSide := evaluate(binop.left, env).(RuntimeVal)
+	rightSide := evaluate(binop.right, env).(RuntimeVal)
 	leftSideVal, leftErr := strconv.ParseFloat(leftSide.value, 64)
 	rightSideVal, rightErr := strconv.ParseFloat(rightSide.value, 64)
 
@@ -373,7 +505,7 @@ func evalBinOp(binop BinaryExpr, env *Environment) RuntimeVal {
 	return nullType
 }
 
-func evaluate(astNode interface{}, env *Environment) RuntimeVal {
+func evaluate(astNode interface{}, env *Environment) Runtime {
 	switch node := astNode.(type) {
 	case Stmt:
 		switch node.Kind {
@@ -400,18 +532,20 @@ func evaluate(astNode interface{}, env *Environment) RuntimeVal {
 		return evalNode
 
 	case VarDeclaration:
-		nodeValue := RuntimeVal{value: "null", Type: Null}
 		if node.value != nil {
-			nodeValue = evaluate(*node.value, env)
+			return env.declareVar(node.identifier, evaluate(*node.value, env), node.constant)
+		} else {
+			nodeValue := RuntimeVal{value: "null", Type: Null}
+			return env.declareVar(node.identifier, nodeValue, node.constant)
 		}
-		return env.declareVar(node.identifier, nodeValue, node.constant)
-
+	case Object:
+		return evalObject(node, env)
 	case AssignmentExpr:
 		if node.assignee.ExpressionKind() != Identifier {
 			panic("invalid assignment")
 		}
 		varName := node.assignee.(Stmt).Symbol
-		return env.assignVar(varName, evaluate(node.value, env))
+		return env.assignVar(varName, evaluate(node.value, env).(RuntimeVal))
 
 	case Program:
 		return evalProgram(node, env)
@@ -426,11 +560,11 @@ func evaluate(astNode interface{}, env *Environment) RuntimeVal {
 type Environment struct {
 	parent    *Environment
 	global    bool
-	variables map[string]RuntimeVal
+	variables map[string]Runtime
 	constants []string
 }
 
-func (env *Environment) declareVar(name string, value RuntimeVal, constant bool) RuntimeVal {
+func (env *Environment) declareVar(name string, value Runtime, constant bool) Runtime {
 	_, ok := env.variables[name]
 
 	if ok {
@@ -472,7 +606,7 @@ func (env *Environment) assignVar(name string, value RuntimeVal) RuntimeVal {
 	return value
 }
 
-func (env *Environment) lookupVar(name string) RuntimeVal {
+func (env *Environment) lookupVar(name string) Runtime {
 	varEnv := env.resolve(name)
 	return varEnv.variables[name]
 }
